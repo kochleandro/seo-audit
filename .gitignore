@@ -1,0 +1,22 @@
+# ===== Datos y resultados =====
+*.txt
+*.xlsx
+*.csv
+
+# ===== Resultados del script =====
+output/
+results/
+
+# ===== Python =====
+__pycache__/
+*.pyc
+*.pyo
+
+# ===== Google Colab =====
+.config/
+drive/
+sample_data/
+
+# ===== Sistema =====
+.DS_Store
+Thumbs.db
