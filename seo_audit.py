@@ -7,6 +7,21 @@ import os
 
 # ===================== Funciones SEO =====================
 
+import time
+
+# Sesión global para mantener cookies
+session = requests.Session()
+
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    ),
+    "Accept-Language": "es-AR,es;q=0.9,en;q=0.8",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+}
+
 def analizar_url(url):
     """Analiza una URL y devuelve un diccionario con información SEO"""
     resultado = {
@@ -18,15 +33,24 @@ def analizar_url(url):
         "MetaDescription": ""
     }
     try:
-        response = requests.get(url, timeout=10)
+        response = session.get(url, headers=HEADERS, timeout=15, allow_redirects=True)
         resultado["Status"] = response.status_code
+
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, "html.parser")
-            resultado["Title"] = soup.title.string.strip() if soup.title else ""
+
+            # Title
+            resultado["Title"] = soup.title.get_text(strip=True) if soup.title else ""
+
+            # MetaTitle (si existe, sino usar Title)
             meta_title_tag = soup.find("meta", attrs={"name": "title"})
-            resultado["MetaTitle"] = meta_title_tag["content"].strip() if meta_title_tag else ""
+            resultado["MetaTitle"] = meta_title_tag["content"].strip() if meta_title_tag else resultado["Title"]
+
+            # MetaDescription
             meta_desc_tag = soup.find("meta", attrs={"name": "description"})
             resultado["MetaDescription"] = meta_desc_tag["content"].strip() if meta_desc_tag else ""
+
+            # Indexable
             robots_tag = soup.find("meta", attrs={"name": "robots"})
             resultado["Indexable"] = "NO" if robots_tag and "noindex" in robots_tag.get("content","").lower() else "SI"
         else:
@@ -34,6 +58,8 @@ def analizar_url(url):
     except Exception as e:
         resultado["Status"] = "Error"
         resultado["Indexable"] = "NO"
+    # Delay anti-bloqueo
+    time.sleep(1.2)
     return resultado
 
 def ejecutar_auditoria(ruta_archivo):
