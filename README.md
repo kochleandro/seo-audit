@@ -1,12 +1,7 @@
-SEO Audit Tool
 
-Uso:
-python seo_audit.py urls.txt
-
-%%writefile README.md
 # SEO Audit & Health Analyzer 🚀
 
-## Descripción Ejecutiva
+## Descripción 
 Esta herramienta es un **Analizador de Salud SEO Automatizado** diseñado para auditar grandes volúmenes de URLs de manera eficiente. Su objetivo principal es proporcionar un diagnóstico rápido sobre la indexabilidad, estructura de metadatos y estado de respuesta del servidor, facilitando la toma de decisiones basada en datos para equipos de Marketing y SEO.
 
 ## Funcionalidades Clave
