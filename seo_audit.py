@@ -6,15 +6,33 @@ from bs4 import BeautifulSoup
 import os
 import time
 from urllib.parse import urljoin, urlparse
+from datetime import datetime
 from openpyxl.styles import Font, PatternFill, Alignment
 
 session = requests.Session()
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0"
-}
+HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 urls_rastreadas = []
+
+# =========================
+# LEER URLS DESDE TXT
+# =========================
+
+def leer_urls_txt(ruta):
+
+    urls = []
+
+    with open(ruta,"r",encoding="utf-8") as f:
+
+        for linea in f:
+            url = linea.strip()
+
+            if url:
+                urls.append(url)
+
+    return urls
+
 
 # =========================
 # DETECTAR SITEMAP
@@ -38,7 +56,8 @@ def detectar_sitemap(dominio):
         url = dominio + ruta
 
         try:
-            r = session.get(url, headers=HEADERS, timeout=10)
+
+            r = session.get(url,headers=HEADERS,timeout=10)
 
             if r.status_code == 200 and "<loc>" in r.text:
                 return url
@@ -160,7 +179,7 @@ def rastreo_completo():
 
 
 # =========================
-# RASTREAR DESDE SITEMAP
+# RASTREAR URLS
 # =========================
 
 def rastrear_urls():
@@ -170,15 +189,24 @@ def rastrear_urls():
     origen = entry_archivo.get().strip()
 
     if not origen:
-        messagebox.showerror("Error","Ingresa dominio o sitemap")
+        messagebox.showerror("Error","Ingresa dominio, sitemap o TXT")
+        return
+
+    log_text.delete(1.0,tk.END)
+
+    # Leer TXT
+    if origen.endswith(".txt"):
+
+        urls_rastreadas = leer_urls_txt(origen)
+
+        log_text.insert(tk.END,f"URLs cargadas desde TXT: {len(urls_rastreadas)}\n")
+
         return
 
     if not origen.startswith("http"):
         origen="https://"+origen
 
     sitemap = detectar_sitemap(origen)
-
-    log_text.delete(1.0,tk.END)
 
     if sitemap:
 
@@ -213,7 +241,8 @@ def analizar_url(url):
         "Images": 0,
         "Images_sin_alt": 0,
         "WordCount": 0,
-        "PageSizeKB": 0
+        "PageSizeKB": 0,
+        "BrokenLinks": 0
     }
 
     try:
@@ -263,12 +292,33 @@ def analizar_url(url):
             else:
                 resultado["Indexable"] = "SI"
 
+            # Detectar links rotos
+            broken = 0
+
+            for link in soup.find_all("a",href=True):
+
+                href = link["href"]
+
+                if href.startswith("http"):
+
+                    try:
+
+                        r2 = session.head(href,timeout=5)
+
+                        if r2.status_code >= 400:
+                            broken += 1
+
+                    except:
+                        broken += 1
+
+            resultado["BrokenLinks"] = broken
+
     except:
 
         resultado["Status"] = "Error"
         resultado["Indexable"] = "NO"
 
-    time.sleep(0.5)
+    time.sleep(0.3)
 
     return resultado
 
@@ -317,13 +367,20 @@ def ejecutar_auditoria():
 
     df["Semaforo"] = df.apply(semaforo,axis=1)
 
-    archivo = os.path.join(os.getcwd(),"seo_auditoria.xlsx")
+    # Nombre del archivo automático
+
+    dominio = urlparse(urls_rastreadas[0]).netloc.replace("www.","")
+
+    fecha = datetime.now().strftime("%Y-%m-%d")
+
+    nombre_archivo = f"auditoria_{dominio}_{fecha}.xlsx"
+
+    archivo = os.path.join(os.getcwd(),nombre_archivo)
 
     with pd.ExcelWriter(archivo,engine="openpyxl") as writer:
 
         df.to_excel(writer,index=False,sheet_name="Auditoria")
 
-        workbook = writer.book
         sheet = writer.sheets["Auditoria"]
 
         for cell in sheet[1]:
@@ -371,25 +428,36 @@ def ejecutar_auditoria():
 # GUI
 # =========================
 
+def seleccionar_archivo():
+
+    file = filedialog.askopenfilename()
+
+    if file:
+        entry_archivo.delete(0,tk.END)
+        entry_archivo.insert(0,file)
+
+
 root = tk.Tk()
 root.title("SEO Audit Tool")
-root.geometry("750x540")
+root.geometry("760x560")
 
 frame = tk.Frame(root)
 frame.pack(pady=10)
 
-tk.Label(frame,text="Dominio o Sitemap").pack(side=tk.LEFT)
+tk.Label(frame,text="Dominio / Sitemap / TXT").pack(side=tk.LEFT)
 
 entry_archivo = tk.Entry(frame,width=50)
 entry_archivo.pack(side=tk.LEFT,padx=5)
 
-tk.Button(root,text="Rastrear URLs (Sitemap)",command=rastrear_urls,bg="blue",fg="white").pack(pady=5)
+tk.Button(frame,text="Seleccionar",command=seleccionar_archivo).pack(side=tk.LEFT)
+
+tk.Button(root,text="Rastrear URLs (Sitemap o TXT)",command=rastrear_urls,bg="blue",fg="white").pack(pady=5)
 
 tk.Button(root,text="Rastreo Completo (Crawler)",command=rastreo_completo,bg="orange",fg="white").pack(pady=5)
 
 tk.Button(root,text="Ejecutar Auditoría",command=ejecutar_auditoria,bg="green",fg="white").pack(pady=10)
 
-log_text = scrolledtext.ScrolledText(root,width=90,height=22)
+log_text = scrolledtext.ScrolledText(root,width=95,height=24)
 log_text.pack(padx=10,pady=10)
 
 root.mainloop()
