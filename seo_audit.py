@@ -4,12 +4,10 @@ import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 import os
-
-# ===================== Funciones SEO =====================
-
 import time
 
-# Sesión global para mantener cookies
+# ===================== Configuración HTTP =====================
+
 session = requests.Session()
 
 HEADERS = {
@@ -22,6 +20,8 @@ HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 }
 
+# ===================== Funciones SEO =====================
+
 def analizar_url(url):
     """Analiza una URL y devuelve un diccionario con información SEO"""
     resultado = {
@@ -32,6 +32,7 @@ def analizar_url(url):
         "MetaTitle": "",
         "MetaDescription": ""
     }
+
     try:
         response = session.get(url, headers=HEADERS, timeout=15, allow_redirects=True)
         resultado["Status"] = response.status_code
@@ -42,7 +43,7 @@ def analizar_url(url):
             # Title
             resultado["Title"] = soup.title.get_text(strip=True) if soup.title else ""
 
-            # MetaTitle (si existe, sino usar Title)
+            # MetaTitle
             meta_title_tag = soup.find("meta", attrs={"name": "title"})
             resultado["MetaTitle"] = meta_title_tag["content"].strip() if meta_title_tag else resultado["Title"]
 
@@ -52,68 +53,154 @@ def analizar_url(url):
 
             # Indexable
             robots_tag = soup.find("meta", attrs={"name": "robots"})
-            resultado["Indexable"] = "NO" if robots_tag and "noindex" in robots_tag.get("content","").lower() else "SI"
+            resultado["Indexable"] = "NO" if robots_tag and "noindex" in robots_tag.get("content", "").lower() else "SI"
+
         else:
             resultado["Indexable"] = "NO"
-    except Exception as e:
+
+    except Exception:
         resultado["Status"] = "Error"
         resultado["Indexable"] = "NO"
-    # Delay anti-bloqueo
+
     time.sleep(1.2)
     return resultado
 
-def ejecutar_auditoria(ruta_archivo):
-    """Lee el archivo de URLs y ejecuta la auditoría"""
+
+# ===================== NUEVO: Leer sitemap =====================
+
+def obtener_urls_desde_sitemap(sitemap_url):
+
+    urls = []
+
     try:
-        with open(ruta_archivo, "r", encoding="utf-8") as f:
-            urls = [u.strip() for u in f if u.strip()]
+        response = session.get(sitemap_url, headers=HEADERS, timeout=15)
+
+        if response.status_code != 200:
+            messagebox.showerror("Error", f"No se pudo acceder al sitemap ({response.status_code})")
+            return []
+
+        soup = BeautifulSoup(response.content, "xml")
+
+        # Detectar sitemap index
+        sitemaps = soup.find_all("sitemap")
+
+        if sitemaps:
+            for sitemap in sitemaps:
+
+                loc = sitemap.find("loc")
+
+                if loc:
+                    sub_sitemap_url = loc.text.strip()
+
+                    sub_resp = session.get(sub_sitemap_url, headers=HEADERS, timeout=15)
+
+                    if sub_resp.status_code == 200:
+
+                        sub_soup = BeautifulSoup(sub_resp.content, "xml")
+
+                        for url in sub_soup.find_all("loc"):
+                            urls.append(url.text.strip())
+
+        else:
+            # sitemap normal
+            for url in soup.find_all("loc"):
+                urls.append(url.text.strip())
+
+        return urls
+
     except Exception as e:
-        messagebox.showerror("Error", f"No se pudo leer el archivo: {e}")
+        messagebox.showerror("Error", f"No se pudo leer el sitemap: {e}")
+        return []
+
+
+# ===================== Ejecutar auditoría =====================
+
+def ejecutar_auditoria(origen):
+    """Lee URLs desde archivo o sitemap"""
+
+    # Detectar si es URL o archivo
+    if origen.startswith("http"):
+        urls = obtener_urls_desde_sitemap(origen)
+    else:
+        try:
+            with open(origen, "r", encoding="utf-8") as f:
+                urls = [u.strip() for u in f if u.strip()]
+        except Exception as e:
+            messagebox.showerror("Error", f"No se pudo leer el archivo: {e}")
+            return
+
+    if not urls:
+        messagebox.showerror("Error", "No se encontraron URLs")
         return
+    print("URLs encontradas:", len(urls))
 
     resultados = []
+
     log_text.delete(1.0, tk.END)
+
     for i, url in enumerate(urls, 1):
+
         log_text.insert(tk.END, f"[{i}/{len(urls)}] Procesando: {url}\n")
         log_text.see(tk.END)
+
         root.update()
+
         res = analizar_url(url)
+
         resultados.append(res)
 
     # Guardar Excel
-    output_file = os.path.join(os.path.dirname(ruta_archivo), "seo_auditoria_semaforo.xlsx")
+    output_file = os.path.join(os.getcwd(), "seo_auditoria_semaforo.xlsx")
+
     df = pd.DataFrame(resultados)
-    
-    # Agregar columna Semáforo
+
+    # Semáforo SEO
     def semaforo(row):
+
         if row["Status"] != 200 or row["Indexable"] == "NO":
             return "🔴"
+
         elif row["Status"] == 200 and row["Indexable"] == "SI":
             return "🟢"
+
         else:
             return "🟡"
+
     df["Semaforo"] = df.apply(semaforo, axis=1)
 
     df.to_excel(output_file, index=False)
+
     messagebox.showinfo("Auditoría completa", f"Archivo generado:\n{output_file}")
+
 
 # ===================== GUI =====================
 
 def seleccionar_archivo():
+
     file_path = filedialog.askopenfilename(
         title="Seleccionar archivo de URLs",
         filetypes=(("Archivos de texto", "*.txt"), ("Todos los archivos", "*.*"))
     )
+
     if file_path:
         entry_archivo.delete(0, tk.END)
         entry_archivo.insert(0, file_path)
 
+
 def ejecutar():
-    ruta = entry_archivo.get()
-    if not ruta or not os.path.exists(ruta):
-        messagebox.showerror("Error", "Selecciona un archivo válido")
+
+    origen = entry_archivo.get().strip()
+
+    if not origen:
+        messagebox.showerror("Error", "Ingresa un archivo .txt o sitemap")
         return
-    ejecutar_auditoria(ruta)
+
+    # Si parece una URL pero no tiene protocolo
+    if "." in origen and not origen.startswith("http"):
+        origen = "https://" + origen
+
+    ejecutar_auditoria(origen)
+
 
 # ===================== Ventana =====================
 
@@ -124,9 +211,11 @@ root.geometry("700x500")
 frame_top = tk.Frame(root)
 frame_top.pack(pady=10)
 
-tk.Label(frame_top, text="Archivo de URLs:").pack(side=tk.LEFT)
+tk.Label(frame_top, text="Archivo .txt o Sitemap URL:").pack(side=tk.LEFT)
+
 entry_archivo = tk.Entry(frame_top, width=50)
 entry_archivo.pack(side=tk.LEFT, padx=5)
+
 tk.Button(frame_top, text="Seleccionar", command=seleccionar_archivo).pack(side=tk.LEFT)
 
 tk.Button(root, text="Ejecutar Auditoría", command=ejecutar, bg="green", fg="white").pack(pady=10)
@@ -135,4 +224,3 @@ log_text = scrolledtext.ScrolledText(root, width=85, height=20)
 log_text.pack(padx=10, pady=10)
 
 root.mainloop()
-
